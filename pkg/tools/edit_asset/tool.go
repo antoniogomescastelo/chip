@@ -143,8 +143,17 @@ type OperationResult struct {
 // NewTool returns the registered tool.
 func NewTool(collibraClient *http.Client) *chip.Tool[Input, Output] {
 	return &chip.Tool[Input, Output]{
-		Name:        "edit_asset",
-		Description: "Update properties, attributes, relations, responsibilities, and tags on an existing Collibra asset. Accepts a single assetId and a list of typed operations; the server resolves names to IDs, validates each operation against the asset's scoped assignment, and returns per-operation before/after results with partial_success when some operations fail.",
+		Name: "edit_asset",
+		Description: "Edit an existing Collibra asset by submitting a list of typed operations against a single assetId. " +
+			"Supported operations: " +
+			"update_attribute / add_attribute / remove_attribute (change, append, or clear an attribute value such as 'Definition' or 'Note', identified by attribute type name); " +
+			"update_property (whitelisted fields only: 'name' to rename, 'displayName' to change the display name, or 'statusId' which accepts either a status UUID or a status name like 'Candidate'/'Accepted'); " +
+			"add_relation / remove_relation (link or unlink the asset to another asset; add_relation takes a forward role name like 'is synonym of' plus the target assetId, remove_relation takes the relation instance UUID); " +
+			"add_tag (append a free-text tag without replacing existing tags); " +
+			"set_responsibility (assign a user or group to a resource role such as 'Steward' or 'Owner'; the user can be given as a UUID, username, or email). " +
+			"Names (attribute names, relation roles, status names, resource role names, and user identifiers) are resolved server-side and matching is case- and whitespace-insensitive. " +
+			"Each operation is validated against the asset's scoped assignment before any writes; invalid ops return per-operation errors while valid siblings still apply, yielding status=success, partial_success, or error. " +
+			"On success the response includes a post-edit snapshot of the asset and per-operation before/after values.",
 		Handler:     handler(collibraClient),
 		Permissions: []string{},
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: chip.Ptr(true)},
