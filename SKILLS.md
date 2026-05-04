@@ -93,6 +93,150 @@ These tools query the technical lineage graph — a map of all data objects and 
 
 ---
 
+## Integration Lifecycle Management
+
+These tools manage GENERIC integration instances — Databricks Unity Catalog and Google Dataplex Universal Catalog syncs running on Collibra Edge. They cover three API surfaces: Edge Management (`/edge/api/rest/v2`), Catalog Cloud Ingestions (`/rest/catalog/1.0/genericIntegration`), and Jobs (`/rest/jobs/v1`).
+
+> **Key mapping**: A GENERIC integration instance is an Edge *capability*. The `capability.Id` from the Edge API is the same UUID as the `ingestibleId` used in the Catalog and Jobs APIs. Always use this UUID to move between the three APIs.
+
+### Edge: Capabilities (integrations)
+
+**`edge_list_capabilities`** — List all Edge capabilities (integration instances). Use this as the entry point to discover `ingestibleId` values. Returns `id`, `name`, `type.Id`, `edgeSiteId`, and `parameters` for each capability. `type.Id` is a human-readable string (e.g. `"databricks-edge-capability"`) — use it to filter by integration platform directly from the response.
+
+**`edge_find_capabilities`** — Filter capabilities by `edgeSiteId`, `labels`, or `parameters`. All filters are ANDed; multiple values within `labels` or `parameters` are ORed. To filter by integration type, pass `labels: {"capability-type": "<type-id>"}` — the label value is the same string as `type.Id` on the capability (e.g. `"databricks-edge-capability"`). If you don't know the exact type ID, first call `edge_find_capabilities` with only `edgeSiteId` to get a sample, read `type.Id` from any result, then use that as the label value in a second call. Name filtering is not supported server-side — filter by name client-side after receiving results.
+
+**`edge_get_capability`** — Get full details for a single capability by UUID.
+
+**`edge_create_capability`** — Create a new capability. Requires `name`, `typeId`, and `edgeSiteId`. Pass integration-specific parameters in the `parameters` map.
+
+**`edge_update_capability`** — Update an existing capability's name, type, site, or parameters.
+
+**`edge_delete_capability`** — Delete a capability permanently. Confirm with the user before calling.
+
+**`edge_run_capability`** — Trigger a capability run directly via the Edge API. Returns the Edge job UUID. For GENERIC integrations, prefer `catalog_generic_start_job` which returns richer job details.
+
+### Edge: Connections
+
+**`edge_list_connections`** — List all Edge connections. Use to discover connection UUIDs before creating or updating capabilities that reference them.
+
+**`edge_find_connections`** — Filter connections by `edgeSiteId`, `name`, or `nameMatchMode` (`EXACT` or `ANYWHERE`).
+
+**`edge_get_connection`** — Get full details for a single connection by UUID.
+
+**`edge_create_connection`** — Create a new connection. Requires `name`, `typeId`, and `edgeSiteId`. Pass credentials and endpoint parameters in the `parameters` map.
+
+**`edge_update_connection`** — Update an existing connection.
+
+**`edge_delete_connection`** — Delete a connection permanently. Confirm with the user before calling.
+
+**`edge_test_connection`** — Test a connection's reachability. Pass `timeoutSec` to wait for the result synchronously; omit to run asynchronously. Returns `success`, `message`, and a `jobId` for async tracking.
+
+### Edge: Jobs
+
+**`edge_cancel_job`** — Cancel a running Edge job by its Edge job UUID (not the catalog job ID).
+
+**`edge_get_job_status`** — Get the current status log entry for an Edge job. Returns `status`, `message`, and `lastUpdatedDateTime`.
+
+**`edge_get_job_status_history`** — Get the full status history for an Edge job. Use to trace how a job progressed through states.
+
+### Catalog: GENERIC Integration Config
+
+**`catalog_generic_get_config`** — Get the current configuration for a GENERIC integration by `ingestibleId`.
+
+**`catalog_generic_save_config`** — Create or update the configuration. Pass the config as a JSON string in the `configuration` field.
+
+**`catalog_generic_delete_config`** — Delete the configuration. Confirm with the user before calling.
+
+**`catalog_generic_get_schema`** — Get the JSON schema that describes valid configuration values for this integration type. Use this before calling `catalog_generic_save_config` to understand what fields are required.
+
+### Catalog: GENERIC Integration Schedules
+
+**`catalog_generic_get_schedule`** — Get the active schedule for an integration. Returns `cronExpression`, `cronTimeZone`, `lastRunTimeStamp`, and `nextRunDateLongValue` (both as Unix epoch milliseconds).
+
+**`catalog_generic_get_all_schedules`** — Get all schedules (including per-workflow schedules) for an integration.
+
+**`catalog_generic_add_schedule`** — Create a new schedule. Requires `cronExpression` and `cronTimeZone`.
+
+**`catalog_generic_update_schedule`** — Update the existing schedule. Same inputs as add.
+
+**`catalog_generic_delete_schedule`** — Delete the schedule. Pass `workflow` to target a specific workflow schedule.
+
+### Catalog: GENERIC Integration Jobs
+
+**`catalog_generic_start_job`** — Trigger an immediate sync run. Returns 202 Accepted with a `LegacyJobDto` — the job is queued, not yet complete. Always call `catalog_generic_get_schedule` first to confirm no job is currently running.
+
+**`catalog_generic_cancel_job`** — Cancel the currently running sync job. Returns 404 if no job is running — treat this as a success (already stopped). Confirm with the user before calling.
+
+### Jobs API
+
+**`jobs_find`** — Search jobs by name, state (`WAITING`, `RUNNING`, `COMPLETED`, `FAILED`, `DELETED`), result (`SUCCESS`, `COMPLETED_WITH_ERROR`, `FAILURE`, `ABORTED`), type, or user. Paginated via `cursor` and `pageSize`. Use to find the last job for an integration by searching for its name.
+
+**`jobs_get`** — Get full details for a specific job by UUID. Use this after `jobs_find` to get the `message` field for error details.
+
+---
+
+## Integration Lifecycle Workflows
+
+### List integrations
+1. `list_integrations` — returns all capabilities with schedule + last run enriched. Returns all types unless you pass `platform` (e.g. `"databricks"`, `"dataplex"`). Client instances have ≤20 capabilities so a full fetch is safe.
+2. Each result includes `ingestibleId`, `typeId`, `hasSchedule`, `lastRunAt` (ISO 8601), `lastRunState`, `lastRunResult`, and `nextRun`.
+3. Known type IDs: `"databricks-edge-capability"` (Databricks Unity Catalog), `"dataplex-synchronization"` (Dataplex metadata sync), `"dataplex-lineage-synchronization"` (Dataplex lineage sync).
+
+### Find integrations that ran in the last 24h
+Do **not** fetch all integrations and filter by `lastRunAt` client-side. Instead use the Jobs API as the primary source:
+1. `jobs_find` with `sortField: "START_DATE"`, `sortOrder: "DESC"`, and a reasonable page size (e.g. 50).
+2. Filter the results to jobs whose `startDate` is within the last 24h.
+3. The `name` field of each job is `"Synchronization for <capability name>"` — strip the prefix to get the capability name.
+4. Optionally cross-reference with `list_integrations` if you need `ingestibleId` or schedule details for those capabilities.
+
+### Find integrations on a specific Edge site
+1. `edge_find_capabilities` with `edgeSiteId` → filtered list
+2. Use `type.Id` from results to distinguish integration types
+
+### Check integration status (schedule + last run)
+1. `catalog_generic_get_schedule` with `ingestibleId` → current schedule, `lastRunTimeStamp`, `nextRunDateLongValue`
+2. `jobs_find` with the integration name → find the most recent job
+3. `jobs_get` with the job UUID → full state, result, progress, and message
+
+### Trigger a sync run
+1. `catalog_generic_get_schedule` → confirm state is not actively running
+2. `jobs_find` with state `RUNNING` and the integration name → double-check no job is in flight
+3. Confirm with the user: _"I'll trigger a run for `<name>`. Proceed?"_
+4. `catalog_generic_start_job` → returns job details in `WAITING` or `RUNNING` state
+5. Poll `jobs_find` or `jobs_get` to report progress
+
+### Cancel a running sync
+1. `jobs_find` with state `RUNNING` and the integration name → confirm a job is actually running
+2. Confirm with the user before cancelling
+3. `catalog_generic_cancel_job` → 204 on success, 404 means already stopped (treat as success)
+
+### Manage a schedule
+1. `catalog_generic_get_schedule` → see current schedule
+2. `catalog_generic_update_schedule` to change cron expression/timezone, or `catalog_generic_delete_schedule` to remove it
+3. `catalog_generic_add_schedule` if no schedule exists yet
+
+### Diagnose a failed sync
+1. `jobs_find` with result `FAILURE` or `COMPLETED_WITH_ERROR` and the integration name
+2. `jobs_get` with the job UUID → read the `message` field for error detail
+3. `catalog_generic_get_config` → verify the configuration is still valid
+4. `catalog_generic_get_schema` → check config against the schema if the error suggests misconfiguration
+
+### Set up a new integration
+1. `edge_list_connections` → find or confirm the connection UUID to use
+2. `edge_test_connection` with the connection UUID → confirm it is reachable
+3. `edge_create_capability` with `typeId`, `edgeSiteId`, and `parameters` (including the connection UUID)
+4. `catalog_generic_get_schema` → understand required configuration fields
+5. `catalog_generic_save_config` → apply the configuration
+6. `catalog_generic_add_schedule` → set a cron schedule if needed
+7. `catalog_generic_start_job` → trigger the first run
+
+### Test and update a connection
+1. `edge_test_connection` → check current reachability
+2. `edge_update_connection` → change parameters (endpoint, credentials)
+3. `edge_test_connection` again → confirm the updated connection works
+
+---
+
 ## Common Workflows
 
 ### Create any asset
@@ -149,3 +293,10 @@ These tools query the technical lineage graph — a map of all data objects and 
 - **Permissions**: `discover_data_assets` and `discover_business_glossary` require the `dgc.ai-copilot` permission. Classification tools require `dgc.classify` + `dgc.catalog`. If a tool fails with a permission error, let the user know which permission is needed.
 - **Pagination**: `search_asset_keyword`, `list_asset_types`, `search_data_class`, and `search_data_classification_match` use `limit`/`offset`. `list_data_contract` and `get_asset_details` (for relations) use cursor-based pagination — carry the cursor from the previous response. Lineage tools (`search_lineage_entities`, `get_lineage_upstream`, `get_lineage_downstream`, `search_lineage_transformations`) also use cursor-based pagination.
 - **Error handling**: Validation errors are returned in the output `error` field (not as Go errors), so always check `error` and `success`/`found` fields in the response before using the data.
+- **Integration IDs**: The `capability.Id` from the Edge API is the same UUID as `ingestibleId` in the Catalog and Jobs APIs. One UUID, three API surfaces.
+- **Job monitoring**: Use the Jobs API (`jobs_find`, `jobs_get`) for catalog-level job state and error messages. Use `edge_get_job_status`/`edge_get_job_status_history` for low-level Edge execution status.
+- **Timestamps**: `lastRunTimeStamp` and `nextRunDateLongValue` in schedule responses are Unix epoch milliseconds — convert to human-readable time before presenting to the user.
+- **Async jobs**: `catalog_generic_start_job` returns 202 Accepted. The job is queued, not complete. Poll `jobs_get` for progress rather than assuming success immediately.
+- **Cancel 404 is not an error**: `catalog_generic_cancel_job` returns 404 when no job is running. This is expected — treat it as "already stopped".
+- **Confirm before destructive actions**: Always ask the user before calling `catalog_generic_start_job`, `catalog_generic_cancel_job`, `edge_delete_capability`, `edge_delete_connection`, or any delete/cancel operation.
+- **Capability type filtering**: Use `edge_find_capabilities` with `labels: {"capability-type": "<type-id>"}` — the label value is the same as `type.Id` in the response (e.g. `"databricks-edge-capability"`). This avoids fetching the full list. If the exact type ID is unknown, do a discovery call with `edgeSiteId` first to read `type.Id` from a sample result. Filter by name client-side after.

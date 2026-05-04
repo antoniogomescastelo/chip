@@ -6,9 +6,37 @@ import (
 	"github.com/collibra/chip/pkg/chip"
 	"github.com/collibra/chip/pkg/tools/add_business_term"
 	"github.com/collibra/chip/pkg/tools/add_data_classification_match"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_add_schedule"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_cancel_job"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_delete_config"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_delete_schedule"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_get_all_schedules"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_get_config"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_get_schedule"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_get_schema"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_save_config"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_start_job"
+	"github.com/collibra/chip/pkg/tools/catalog_generic_update_schedule"
 	"github.com/collibra/chip/pkg/tools/create_asset"
 	"github.com/collibra/chip/pkg/tools/discover_business_glossary"
 	"github.com/collibra/chip/pkg/tools/discover_data_assets"
+	"github.com/collibra/chip/pkg/tools/edge_cancel_job"
+	"github.com/collibra/chip/pkg/tools/edge_create_capability"
+	"github.com/collibra/chip/pkg/tools/edge_create_connection"
+	"github.com/collibra/chip/pkg/tools/edge_delete_capability"
+	"github.com/collibra/chip/pkg/tools/edge_delete_connection"
+	"github.com/collibra/chip/pkg/tools/edge_find_capabilities"
+	"github.com/collibra/chip/pkg/tools/edge_find_connections"
+	"github.com/collibra/chip/pkg/tools/edge_get_capability"
+	"github.com/collibra/chip/pkg/tools/edge_get_connection"
+	"github.com/collibra/chip/pkg/tools/edge_get_job_status"
+	"github.com/collibra/chip/pkg/tools/edge_get_job_status_history"
+	"github.com/collibra/chip/pkg/tools/edge_list_capabilities"
+	"github.com/collibra/chip/pkg/tools/edge_list_connections"
+	"github.com/collibra/chip/pkg/tools/edge_run_capability"
+	"github.com/collibra/chip/pkg/tools/edge_test_connection"
+	"github.com/collibra/chip/pkg/tools/edge_update_capability"
+	"github.com/collibra/chip/pkg/tools/edge_update_connection"
 	"github.com/collibra/chip/pkg/tools/get_asset_details"
 	"github.com/collibra/chip/pkg/tools/get_business_term_data"
 	"github.com/collibra/chip/pkg/tools/get_column_semantics"
@@ -18,10 +46,13 @@ import (
 	"github.com/collibra/chip/pkg/tools/get_lineage_upstream"
 	"github.com/collibra/chip/pkg/tools/get_measure_data"
 	"github.com/collibra/chip/pkg/tools/get_table_semantics"
+	"github.com/collibra/chip/pkg/tools/jobs_find"
+	"github.com/collibra/chip/pkg/tools/jobs_get"
 	"github.com/collibra/chip/pkg/tools/list_asset_types"
+	"github.com/collibra/chip/pkg/tools/list_integrations"
 	"github.com/collibra/chip/pkg/tools/list_data_contracts"
-	"github.com/collibra/chip/pkg/tools/prepare_create_asset"
 	"github.com/collibra/chip/pkg/tools/prepare_add_business_term"
+	"github.com/collibra/chip/pkg/tools/prepare_create_asset"
 	"github.com/collibra/chip/pkg/tools/pull_data_contract_manifest"
 	"github.com/collibra/chip/pkg/tools/push_data_contract_manifest"
 	"github.com/collibra/chip/pkg/tools/remove_data_classification_match"
@@ -67,6 +98,41 @@ func RegisterAll(server *chip.Server, client *http.Client, toolConfig *chip.Serv
 	toolRegister(server, toolConfig, prepare_create_asset.NewTool(client))
 	toolRegister(server, toolConfig, add_business_term.NewTool(client))
 	toolRegister(server, toolConfig, create_asset.NewTool(client))
+	// Edge Management tools
+	toolRegister(server, toolConfig, edge_list_capabilities.NewTool(client))
+	toolRegister(server, toolConfig, edge_create_capability.NewTool(client))
+	toolRegister(server, toolConfig, edge_find_capabilities.NewTool(client))
+	toolRegister(server, toolConfig, edge_get_capability.NewTool(client))
+	toolRegister(server, toolConfig, edge_update_capability.NewTool(client))
+	toolRegister(server, toolConfig, edge_delete_capability.NewTool(client))
+	toolRegister(server, toolConfig, edge_run_capability.NewTool(client))
+	toolRegister(server, toolConfig, edge_list_connections.NewTool(client))
+	toolRegister(server, toolConfig, edge_create_connection.NewTool(client))
+	toolRegister(server, toolConfig, edge_find_connections.NewTool(client))
+	toolRegister(server, toolConfig, edge_get_connection.NewTool(client))
+	toolRegister(server, toolConfig, edge_update_connection.NewTool(client))
+	toolRegister(server, toolConfig, edge_delete_connection.NewTool(client))
+	toolRegister(server, toolConfig, edge_test_connection.NewTool(client))
+	toolRegister(server, toolConfig, edge_cancel_job.NewTool(client))
+	toolRegister(server, toolConfig, edge_get_job_status.NewTool(client))
+	toolRegister(server, toolConfig, edge_get_job_status_history.NewTool(client))
+	// Catalog Generic Integration tools
+	toolRegister(server, toolConfig, catalog_generic_get_config.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_save_config.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_delete_config.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_get_schema.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_get_schedule.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_add_schedule.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_update_schedule.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_delete_schedule.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_get_all_schedules.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_cancel_job.NewTool(client))
+	toolRegister(server, toolConfig, catalog_generic_start_job.NewTool(client))
+	// Jobs tools
+	toolRegister(server, toolConfig, jobs_find.NewTool(client))
+	toolRegister(server, toolConfig, jobs_get.NewTool(client))
+	// Integration lifecycle tools
+	toolRegister(server, toolConfig, list_integrations.NewTool(client))
 }
 
 func toolRegister[In, Out any](server *chip.Server, toolConfig *chip.ServerToolConfig, tool *chip.Tool[In, Out]) {
