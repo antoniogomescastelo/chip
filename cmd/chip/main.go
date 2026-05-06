@@ -38,7 +38,7 @@ func main() {
 	if config.Mcp.Mode == "stdio" {
 		runStdioServer(server)
 	} else if strings.HasPrefix(config.Mcp.Mode, "http") {
-		runHttpServer(config.Mcp.Mode, server, config.Mcp.Http.Port)
+		runHttpServer(config.Mcp.Mode, server, config.Mcp.Http, &config.Mcp.Auth)
 	} else {
 		slog.Error(fmt.Sprintf("Invalid server mode: '%s'", config.Mcp.Mode))
 		os.Exit(1)
@@ -53,20 +53,20 @@ func runStdioServer(server *chip.Server) {
 	}
 }
 
-func runHttpServer(mode string, server *chip.Server, port int) {
-	var handler http.Handler
+func runHttpServer(mode string, server *chip.Server, httpConfig HttpConfig, authConfig *AuthConfig) {
+	var mcpHandler http.Handler
 
 	switch mode {
 	case "http", "http-streamable":
 		slog.Info("Using streamable http handler")
-		handler = mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
+		mcpHandler = mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
 			return &server.Server
 		}, &mcp.StreamableHTTPOptions{
 			Stateless: true,
 		})
 	case "http-sse":
 		slog.Info("Using SSE http handler")
-		handler = mcp.NewSSEHandler(func(req *http.Request) *mcp.Server {
+		mcpHandler = mcp.NewSSEHandler(func(req *http.Request) *mcp.Server {
 			return &server.Server
 		}, &mcp.SSEOptions{})
 	default:
@@ -74,16 +74,39 @@ func runHttpServer(mode string, server *chip.Server, port int) {
 		os.Exit(1)
 	}
 
-	httpServer := &http.Server{
-		Addr:    fmt.Sprintf("localhost:%d", port),
-		Handler: handler,
+	mux := http.NewServeMux()
+	mux.Handle("/", mcpHandler)
+
+	var rootHandler http.Handler = mux
+	if authConfig.Enabled {
+		mux.HandleFunc("/.well-known/oauth-protected-resource", wellKnownHandler(authConfig))
+		auth := newOAuthMiddleware(authConfig)
+		rootHandler = auth.wrap(mux)
+		slog.Info("OAuth 2.1 authentication enabled")
 	}
 
-	slog.Warn("HTTP server is only listening on localhost for security reasons.")
-	slog.Info(fmt.Sprintf("Listening on localhost:%d", port))
-	if err := httpServer.ListenAndServe(); err != nil {
-		slog.Error(fmt.Sprintf("Failed to start HTTP server: %v", err))
-		os.Exit(1)
+	addr := fmt.Sprintf("%s:%d", httpConfig.Host, httpConfig.Port)
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: rootHandler,
+	}
+
+	tls := httpConfig.TLSCertFile != "" && httpConfig.TLSKeyFile != ""
+	if tls {
+		slog.Info(fmt.Sprintf("Listening on https://%s", addr))
+		if err := httpServer.ListenAndServeTLS(httpConfig.TLSCertFile, httpConfig.TLSKeyFile); err != nil {
+			slog.Error(fmt.Sprintf("Failed to start HTTPS server: %v", err))
+			os.Exit(1)
+		}
+	} else {
+		if httpConfig.Host == "localhost" {
+			slog.Warn("HTTP server is only listening on localhost for security reasons.")
+		}
+		slog.Info(fmt.Sprintf("Listening on http://%s", addr))
+		if err := httpServer.ListenAndServe(); err != nil {
+			slog.Error(fmt.Sprintf("Failed to start HTTP server: %v", err))
+			os.Exit(1)
+		}
 	}
 }
 
